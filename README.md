@@ -20,7 +20,7 @@ export SCW_SECRET_KEY="a-scaleway-secret-key"
 export SCW_RDB_REGION="the-region-your-rdb-instance-is-deployed-on"
 export SCW_RDB_INSTANCE_ID="your-rdb-instance-id"
 
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Manually
