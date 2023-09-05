@@ -92,22 +92,31 @@ func main() {
 		os.Exit(1)
 	}
 	rdbAR := NewAutoSizer(client, os.Getenv("SCW_RDB_REGION"), os.Getenv("SCW_RDB_INSTANCE_ID"))
-
-	// Check that instance exists and that queries are working
-	err = func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
-		defer cancel()
-		_, err = rdbAR.GetInstance(ctx)
-		return err
-	}()
-	if err != nil {
-		log.Fatal(err)
-	}
 	slog.Info(
 		"rdb autoresizer started",
 		slog.String("limit", units.HumanSize(float64(limitSize))),
 		slog.Float64("trigger_percentage", triggerPercent),
 	)
+
+	// Check that instance exists and that queries are working
+	err = func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+		defer cancel()
+		instance, err := rdbAR.GetInstance(ctx)
+		if err != nil {
+			return err
+		}
+		slog.Info(
+			"rdb instance found",
+			slog.String("id", instance.ID),
+			slog.String("name", instance.Name),
+			slog.String("region", string(instance.Region)),
+		)
+		return nil
+	}()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Control Loop
 	slog.Debug("entering control loop", slog.Duration("interval", loopInterval))
