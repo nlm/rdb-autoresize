@@ -8,28 +8,28 @@ import (
 	"github.com/scaleway/scaleway-sdk-go/scw"
 )
 
-func NewAutoSizer(client *scw.Client, region, instance string) *AutoSizer {
-	return &AutoSizer{
+func NewAutoResizer(client *scw.Client, region, instance string) *AutoResizer {
+	return &AutoResizer{
 		rdbApi:     rdb.NewAPI(client),
 		region:     scw.Region(region),
 		instanceID: instance,
 	}
 }
 
-type AutoSizer struct {
+type AutoResizer struct {
 	rdbApi     *rdb.API
 	region     scw.Region
 	instanceID string
 }
 
-func (as AutoSizer) GetInstance(ctx context.Context) (*rdb.Instance, error) {
+func (as AutoResizer) GetInstance(ctx context.Context) (*rdb.Instance, error) {
 	return as.rdbApi.GetInstance(&rdb.GetInstanceRequest{
 		Region:     as.region,
 		InstanceID: as.instanceID,
 	}, scw.WithContext(ctx))
 }
 
-func (as AutoSizer) ResizeVolume(ctx context.Context, newSize uint64) (*rdb.Instance, error) {
+func (as AutoResizer) ResizeVolume(ctx context.Context, newSize uint64) (*rdb.Instance, error) {
 	instance, err := as.GetInstance(ctx)
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func (as AutoSizer) ResizeVolume(ctx context.Context, newSize uint64) (*rdb.Inst
 	}, scw.WithContext(ctx))
 }
 
-func (as AutoSizer) GetDiskUsagePercent(ctx context.Context) (float64, error) {
+func (as AutoResizer) GetDiskUsagePercent(ctx context.Context) (float64, error) {
 	var metricName = "disk_usage_percent"
 	metrics, err := as.rdbApi.GetInstanceMetrics(&rdb.GetInstanceMetricsRequest{
 		Region:     as.region,

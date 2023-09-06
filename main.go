@@ -17,10 +17,10 @@ import (
 )
 
 var (
-	flagTriggerPct = flag.String("trigger-percentage", GetenvDefault("SCW_RDB_TRIGGER_PERCENTAGE", "90"), "disk usage percent trigger")
-	flagLimit      = flag.String("volume-size-limit", GetenvDefault("SCW_RDB_VOLUME_SIZE_LIMIT", "0GB"), "volume size limit")
-	flagJson       = flag.Bool("log-json", false, "log json")
-	flagDebug      = flag.Bool("debug", false, "enable debug logging")
+	flagTriggerPct      = flag.String("trigger-percentage", GetenvDefault("SCW_RDB_TRIGGER_PERCENTAGE", "90"), "disk resize trigger percentage")
+	flagVolumeSizeLimit = flag.String("volume-size-limit", GetenvDefault("SCW_RDB_VOLUME_SIZE_LIMIT", "0GB"), "target volume size limit")
+	flagLogJson         = flag.Bool("log-json", false, "use json format for logging")
+	flagDebug           = flag.Bool("debug", false, "enable debug logging")
 )
 
 var (
@@ -43,7 +43,7 @@ func setupLogging() {
 		logLevel = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
-	if *flagJson {
+	if *flagLogJson {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
 	}
 }
@@ -65,17 +65,26 @@ func parseOptions() (float64, int64) {
 		os.Exit(1)
 	}
 
-	limitSize, err := units.FromHumanSize(*flagLimit)
+	volumeSizeLimit, err := units.FromHumanSize(*flagVolumeSizeLimit)
 	if err != nil {
-		slog.Error("invalid size limit", slog.Any("error", err))
+		slog.Error("invalid volume size limit", slog.Any("error", err))
 		os.Exit(1)
 	}
-	if limitSize == 0 {
+	if volumeSizeLimit == 0 {
 		slog.Error("limit is ZERO, no resize can happen")
 		os.Exit(1)
 	}
 
-	return triggerPercent, limitSize
+	return triggerPercent, volumeSizeLimit
+}
+
+func makeAutoResizer() *AutoResizer {
+	client, err := scw.NewClient(scw.WithAuth(os.Getenv("SCW_ACCESS_KEY"), os.Getenv("SCW_SECRET_KEY")))
+	if err != nil {
+		slog.Error("error creating api client", slog.Any("error", err))
+		os.Exit(1)
+	}
+	return NewAutoResizer(client, os.Getenv("SCW_RDB_REGION"), os.Getenv("SCW_RDB_INSTANCE_ID"))
 }
 
 func main() {
@@ -83,23 +92,18 @@ func main() {
 	setupLogging()
 
 	// Parse options
-	triggerPercent, limitSize := parseOptions()
-
-	// Creating API client and Helper
-	client, err := scw.NewClient(scw.WithAuth(os.Getenv("SCW_ACCESS_KEY"), os.Getenv("SCW_SECRET_KEY")))
-	if err != nil {
-		slog.Error("error creating api client", slog.Any("error", err))
-		os.Exit(1)
-	}
-	rdbAR := NewAutoSizer(client, os.Getenv("SCW_RDB_REGION"), os.Getenv("SCW_RDB_INSTANCE_ID"))
+	triggerPercent, volumeSizeLimit := parseOptions()
 	slog.Info(
 		"rdb autoresizer started",
-		slog.String("limit", units.HumanSize(float64(limitSize))),
+		slog.String("volume_size_limit", units.HumanSize(float64(volumeSizeLimit))),
 		slog.Float64("trigger_percentage", triggerPercent),
 	)
 
+	// Creating API client and Helper
+	rdbAR := makeAutoResizer()
+
 	// Check that instance exists and that queries are working
-	err = func() error {
+	err := func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 		defer cancel()
 		instance, err := rdbAR.GetInstance(ctx)
@@ -159,11 +163,11 @@ func main() {
 
 			// Check size limit
 			targetSize := uint64(instance.Volume.Size) + diskSizeIncrement
-			if targetSize > uint64(limitSize) {
+			if targetSize > uint64(volumeSizeLimit) {
 				slog.Error(
 					"new volume size is over limit",
 					slog.String("target_size", units.HumanSize(float64(targetSize))),
-					slog.String("limit_size", units.HumanSize(float64(limitSize))),
+					slog.String("limit_size", units.HumanSize(float64(volumeSizeLimit))),
 				)
 				continue
 			}
