@@ -1,5 +1,6 @@
 services:
   rdb-autoresize:
+    restart: unless-stopped
     build: .
     environment:
     - SCW_ACCESS_KEY=$SCW_ACCESS_KEY
