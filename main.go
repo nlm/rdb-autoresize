@@ -26,7 +26,7 @@ var (
 var (
 	queryTimeout      = 1 * time.Minute
 	diskSizeIncrement = uint64(5 * units.GB)
-	loopInterval      = 1 * time.Minute
+	loopInterval      = 5 * time.Minute
 )
 
 func GetenvDefault(key string, defaultValue string) string {
