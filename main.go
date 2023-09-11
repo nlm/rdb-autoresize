@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -102,7 +102,7 @@ func main() {
 	// Creating API client and Helper
 	rdbAR := makeAutoResizer()
 
-	// Check that instance exists and that queries are working
+	// Check that instance exists, is compatible and that queries are working
 	err := func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 		defer cancel()
@@ -112,14 +112,27 @@ func main() {
 		}
 		slog.Info(
 			"rdb instance found",
-			slog.String("id", instance.ID),
-			slog.String("name", instance.Name),
-			slog.String("region", string(instance.Region)),
+			slog.Group("instance",
+				slog.String("id", instance.ID),
+				slog.String("name", instance.Name),
+				slog.String("region", instance.Region.String()),
+				slog.Group("volume",
+					slog.String("type", instance.Volume.Type.String()),
+					slog.String("size", units.HumanSize(float64(instance.Volume.Size))),
+				),
+			),
 		)
+		if instance.Volume.Type != rdb.VolumeTypeBssd {
+			return fmt.Errorf("unsupported volume type: %s", instance.Volume.Type)
+		}
+		if int64(instance.Volume.Size) >= volumeSizeLimit {
+			return fmt.Errorf("current volume size is larger than the defined limit")
+		}
 		return nil
 	}()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("error during instance pre-checks", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	// Control Loop
@@ -160,6 +173,13 @@ func main() {
 				"current volume size",
 				slog.String("size", units.HumanSize(float64(instance.Volume.Size))),
 			)
+			if instance.Volume.Type != rdb.VolumeTypeBssd {
+				slog.Error(
+					"volume type is non-resizeable",
+					slog.String("volume_type", instance.Volume.Type.String()),
+				)
+				os.Exit(1)
+			}
 
 			// Check size limit
 			targetSize := uint64(instance.Volume.Size) + diskSizeIncrement
@@ -169,7 +189,7 @@ func main() {
 					slog.String("target_size", units.HumanSize(float64(targetSize))),
 					slog.String("limit_size", units.HumanSize(float64(volumeSizeLimit))),
 				)
-				continue
+				os.Exit(1)
 			}
 
 			// Do the resize

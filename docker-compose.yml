@@ -1,5 +1,5 @@
 services:
-  rdb-resizer:
+  rdb-autoresize:
     build: .
     environment:
     - SCW_ACCESS_KEY=$SCW_ACCESS_KEY

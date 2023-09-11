@@ -33,5 +33,19 @@ export SCW_SECRET_KEY="a-scaleway-secret-key"
 export SCW_RDB_REGION="the-region-your-rdb-instance-is-deployed-on"
 export SCW_RDB_INSTANCE_ID="your-rdb-instance-id"
 
-./rdb-autoresize
+./rdb-autoresize -volume-size-limit 100GB
 ```
+
+## Configuration
+
+Several parameters can be tweaked via environment variables:
+
+- `SCW_RDB_TRIGGER_PERCENTAGE`: resize will happen when disk usage is above this percentage.
+- `SCW_RDB_VOLUME_SIZE_LIMIT`: resize will no happen if target size is above this.
+
+You also have some command line options:
+
+- `-trigger-percentage`: equivalient of `SCW_RDB_TRIGGER_PERCENTAGE`
+- `-volume-size-limit`: equivalent of `SCW_RDB_VOLUME_SIZE_LIMIT`
+- `-log-json`: activate json-formatted logging
+- `-debug`: activate debug logging
