@@ -5,11 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
-
-	// cockpit "github.com/scaleway/scaleway-sdk-go/api/cockpit/v1beta1"
 
 	"github.com/docker/go-units"
 	"github.com/scaleway/scaleway-sdk-go/api/rdb/v1"
@@ -27,6 +26,8 @@ var (
 	queryTimeout      = 1 * time.Minute
 	diskSizeIncrement = uint64(5 * units.GB)
 	loopInterval      = 5 * time.Minute
+	appVersion        = "dev"
+	userAgent         = "RDBAutoResize/" + appVersion
 )
 
 func GetenvDefault(key string, defaultValue string) string {
@@ -48,43 +49,47 @@ func setupLogging() {
 	}
 }
 
-func parseOptions() (float64, int64) {
+func parseOptions() (float64, int64, error) {
+	// trigger percentage
 	triggerPercent, err := strconv.ParseFloat(*flagTriggerPct, 64)
 	if err != nil {
-		slog.Error(
-			"invalid trigger percentage",
-			slog.String("value", *flagTriggerPct),
-			slog.Any("error", err),
+		return 0, 0, fmt.Errorf(
+			"invalid trigger percentage '%s': %w",
+			*flagTriggerPct,
+			err,
 		)
-		os.Exit(1)
 	}
 	if triggerPercent >= 100 || triggerPercent < 80 {
-		slog.Error(
-			"trigger percent must be between 80 and 100",
-		)
-		os.Exit(1)
+		return 0, 0, fmt.Errorf("trigger percent must be between 80 and 100")
 	}
 
+	// volume size limit
 	volumeSizeLimit, err := units.FromHumanSize(*flagVolumeSizeLimit)
 	if err != nil {
-		slog.Error("invalid volume size limit", slog.Any("error", err))
-		os.Exit(1)
+		return 0, 0, fmt.Errorf("invalid volume size limit: %w", err)
 	}
 	if volumeSizeLimit == 0 {
-		slog.Error("limit is ZERO, no resize can happen")
-		os.Exit(1)
+		return 0, 0, fmt.Errorf("limit is ZERO, no resize can happen")
 	}
 
-	return triggerPercent, volumeSizeLimit
+	return triggerPercent, volumeSizeLimit, nil
 }
 
-func makeAutoResizer() *AutoResizer {
-	client, err := scw.NewClient(scw.WithAuth(os.Getenv("SCW_ACCESS_KEY"), os.Getenv("SCW_SECRET_KEY")))
-	if err != nil {
-		slog.Error("error creating api client", slog.Any("error", err))
-		os.Exit(1)
+func makeAutoResizer() (*AutoResizer, error) {
+	var options = []scw.ClientOption{
+		scw.WithAuth(os.Getenv("SCW_ACCESS_KEY"), os.Getenv("SCW_SECRET_KEY")),
+		scw.WithUserAgent(userAgent),
 	}
-	return NewAutoResizer(client, os.Getenv("SCW_RDB_REGION"), os.Getenv("SCW_RDB_INSTANCE_ID"))
+	if *flagDebug {
+		options = append(options, scw.WithHTTPClient(&http.Client{
+			Transport: &loggingTransport{},
+		}))
+	}
+	client, err := scw.NewClient(options...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating api client: %w", err)
+	}
+	return NewAutoResizer(client, os.Getenv("SCW_RDB_REGION"), os.Getenv("SCW_RDB_INSTANCE_ID")), nil
 }
 
 func main() {
@@ -92,18 +97,27 @@ func main() {
 	setupLogging()
 
 	// Parse options
-	triggerPercent, volumeSizeLimit := parseOptions()
+	triggerPercent, volumeSizeLimit, err := parseOptions()
+	if err != nil {
+		slog.Error("error parsing options", slog.Any("error", err))
+		os.Exit(1)
+	}
 	slog.Info(
 		"rdb autoresizer started",
 		slog.String("volume_size_limit", units.HumanSize(float64(volumeSizeLimit))),
 		slog.Float64("trigger_percentage", triggerPercent),
+		slog.String("version", appVersion),
 	)
 
 	// Creating API client and Helper
-	rdbAR := makeAutoResizer()
+	rdbAR, err := makeAutoResizer()
+	if err != nil {
+		slog.Error("error creating api client", slog.Any("error", err))
+		os.Exit(1)
+	}
 
 	// Check that instance exists, is compatible and that queries are working
-	err := func() error {
+	err = func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 		defer cancel()
 		instance, err := rdbAR.GetInstance(ctx)

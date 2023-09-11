@@ -14,13 +14,28 @@ What you need:
 
 ### Using docker compose
 
+Export mandatory variables:
+
 ```bash
 export SCW_ACCESS_KEY="a-scaleway-access-key"
 export SCW_SECRET_KEY="a-scaleway-secret-key"
 export SCW_RDB_REGION="the-region-your-rdb-instance-is-deployed-on"
 export SCW_RDB_INSTANCE_ID="your-rdb-instance-id"
+```
 
-docker compose up -d
+Optionally, you can tweak additional settings:
+
+```bash
+# the % above which triggering will happen. Defaults to 90%
+export SCW_RDB_TRIGGER_PERCENTAGE=90
+# the limit size of your volume, defaults to 100GB
+export SCW_RDB_VOLUME_SIZE_LIMIT=100GB
+```
+
+Start the stack:
+
+```bash
+docker compose up --build
 ```
 
 ### Manually
